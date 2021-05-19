@@ -50,9 +50,9 @@ def jaccard(users, this_user, that_user):
         return 0
 
 
-def similar_users(request, user_id, sim_method = 'pearson'):
-    min = request.GET.get('min', 1)
-
+def similar_users(user_id, sim_method = 'pearson'):
+    #min = request.GET.get('min', 1) # 사용 시 매개변수에 request
+    min = 1
     ratings = Rating.objects.filter(userRated = user_id)
     sim_users = Rating.objects.filter(contentName__in=ratings.values('contentName')) \
         .values('userRated') \
@@ -90,8 +90,8 @@ def similar_users(request, user_id, sim_method = 'pearson'):
         'similarity': topn,
     }
 
-    #return data 
-    return JsonResponse(data, safe=False)
+    return data 
+    #return JsonResponse(data, safe=False)
     #http://127.0.0.1:8000/recommender/sim/user/'user_id'/pearson/
 
 def recs_cf(request, user_id, num=6):
@@ -105,3 +105,4 @@ def recs_cf(request, user_id, num=6):
     }
 
     return JsonResponse(data, safe=False)
+

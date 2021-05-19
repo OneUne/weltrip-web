@@ -72,6 +72,7 @@
             <br><br><br>
 
             <div class="card-group">
+              {% if userCF %}
               {% for elm in userCF %}
               <div class="card">
                 <img class="card-img-top" src="{{elm.firstimage}}" alt="Card image cap">
@@ -88,6 +89,9 @@
                 </div>
               </div>&emsp;&ensp;
               {% endfor %}
+              {% else %}
+              <h4>{{ user.username }}님에게 맞춤 추천을 제공하기 위해, 프로필에서 여행지에 대한 평가 점수를 매겨주세요. </h4>
+              {% endif %}
             </div>
           </div>
 

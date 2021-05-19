@@ -3,9 +3,6 @@ from search.models import ClickDetail
 import pandas as pd
 import numpy as np
 
-
-
-
 def basicTable():
     # 장소 열 값 생성
     all_data = Rating.objects.all().values()

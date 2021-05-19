@@ -294,7 +294,10 @@ def simUserSites(words, site_num, pic_option, apiInfo):
     sites = []
     for i in words :
         req.addPara('keyword', i)
-        elm = parseOne(req.makeReq(apiInfo.url, 'searchKeyword'))[0]
+        try:
+            elm = parseOne(req.makeReq(apiInfo.url, 'searchKeyword'))[0]
+        except:
+            pass
         sites.append(getInfos(elm))
     
     return sites

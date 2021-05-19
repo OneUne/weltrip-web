@@ -12,8 +12,8 @@ def getcontents(dic):
     try:
         lst = []
         for key, value in dic.items():
-            if key == 'contentId': break
-            lst.append(value)
+            if key == 'contentid': break
+            else : lst.append(value)
         string = ''
         for elm in lst:
             string += elm+'. '

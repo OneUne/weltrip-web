@@ -1,8 +1,6 @@
 from django.shortcuts import render, redirect
 from django.http import HttpResponse
 
-
-
 # 검색 모듈과 연결 - 작성자:이혜인
 from .forms import searchForm
 from search.models import SearchMeta, SearchObj
@@ -11,22 +9,16 @@ from search.rq_class import *
 from actualPlanner.models import *
 from django.db.models import Avg, Count, Q
 import datetime 
-from recommender.views import *
 
 #컨텐츠 추천 모듈과 연결 - 작성자: 김기정
 from recs.content_based_recommender import *
 from django.template.defaulttags import register
 from collector.datas import *
+from profile import Profile
 
-
-@register.filter
-def get_item(dictionary, key):
-    return dictionary.get(key)
-
-#컨텐츠 추천 모듈과 연결 - 작성자: 김기정
-from recs.content_based_recommender import *
-from django.template.defaulttags import register
-from collector.datas import *
+#사용자 추천 모듈과 연결 - 작성자: 원윤희
+from users.models import Profile
+from recommender.views import similar_users
 
 
 @register.filter
@@ -42,33 +34,60 @@ def home(request):
     sites2 = sites[4:8]
 
     # 사용자 기반 협업 필터링 - 작성자 : 원윤희
-    if len(similar_user('%s' %request.user)['topn']) >= 2 : 
-        targetUser = similar_user('%s' %request.user)['topn'][1][0] 
-        targetRating = Rating.objects.filter(Q(userRated = targetUser)&Q(grade__gte = 4))
-        myRating = Rating.objects.filter(userRated = request.user)
+    if request.user.is_authenticated :
+        # 평점 기반 유사 사용자가 있는 경우
+        if len(similar_users('%s' %request.user)['topn']) >= 2 : 
+            targetUser = similar_users('%s' %request.user)['topn'][1][0]
+            targetRating = Rating.objects.filter(Q(userRated = targetUser)&Q(grade__gte = 4))
+            myRating = Rating.objects.filter(userRated = request.user)
+            
+            targetContents = [i.contentName for i in targetRating]
+            myContents = [i.contentName for i in myRating]
+
+            recs = [ i for i in targetContents if i not in myContents ]
+            if len(recs) < 4 :
+                if len(similar_users('%s' %request.user)['topn']) >= 3 : 
+                    targetUser = similar_users('%s' %request.user)['topn'][2][0]
+                    targetRating = Rating.objects.filter(Q(userRated = targetUser)&Q(grade__gte = 4))
+                    myRating = Rating.objects.filter(userRated = request.user)
+                    
+                    targetContents = [i.contentName for i in targetRating]
+                    myContents = [i.contentName for i in myRating]
+
+                    for i in targetContents :
+                        if i not in myContents :
+                            recs.append(i)
+
+            sites3 = simUserSites(recs, len(recs), True, appinfo)
+            if len(recs) >= 4:
+                sites3 = sites3[:4]
         
-        targetContents = [i.contentName for i in targetRating]
-        myContents = [i.contentName for i in myRating]
+        # 신규 사용자의 경우
+        else:
+            userType = Profile.objects.filter(user_id = 32).values('disability')[0]['disability'][0]
+            userPref = Profile.objects.filter(user_id = 32).values('preference')[0]['preference'][0]
+            typeFilter = {'disability__startswith':userType, 'preference__startswith':userPref}
+            sameType = Profile.objects.filter(**typeFilter).values('user_id')
+            
+            if len(sameType) == 0 :
+                typeFilter = {'disability__startswith':userType}
+                sameType = Profile.objects.filter(**typeFilter)
+                if len(sameType) == 0 : sites3 = []
 
-        recs = [ i for i in targetContents if i not in myContents ]
-
-        if len(recs) < 4 :
-            if len(similar_user('%s' %request.user)['topn']) >= 3 : 
-                targetUser = similar_user('%s' %request.user)['topn'][2][0]
-                targetRating = Rating.objects.filter(Q(userRated = targetUser)&Q(grade__gte = 4))
+            targetRating = Rating.objects.filter(Q(userRated__in = sameType)&Q(grade__gte = 4))
+            if len(targetRating) == 0 :
+                sites3 = []
+            else:
                 myRating = Rating.objects.filter(userRated = request.user)
-                
+            
                 targetContents = [i.contentName for i in targetRating]
                 myContents = [i.contentName for i in myRating]
 
-                for i in targetContents :
-                    if i not in myContents :
-                        recs.append(i)
+                recs = [ i for i in targetContents if i not in myContents ]
 
-        sites3 = simUserSites(recs, 4, True, appinfo)
-        sites3 = sites3[:4]
-    else :
-        sites3 = []
+                sites3 = simUserSites(recs, len(recs), True, appinfo)
+                if len(recs) >= 4:
+                    sites3 = sites3[:4]
 
     #추천 장소 출력 - 작성자: 김기정
     if request.user.is_authenticated and not(userHisTable(request.user.username).empty): 
@@ -83,96 +102,6 @@ def home(request):
     else:
         return render(request, 'planner/home.html', {'popular1': sites1, 'popular2' : sites2,})
 
-
-
-def similar_user(user_id, sim_method = 'pearson'):
-    min = 1
-
-    ratings = Rating.objects.filter(userRated = user_id)
-    sim_users = Rating.objects.filter(contentName__in=ratings.values('contentName')) \
-        .values('userRated') \
-        .annotate(intersect=Count('userRated')).filter(intersect__gt=min)
-
-    dataset = Rating.objects.filter(userRated__in=sim_users.values('userRated'))
-
-    users = {u['userRated']: {} for u in sim_users}
-
-    for row in dataset:
-        if row.userRated in users.keys():
-            users[row.userRated][row.contentName] = row.grade
-
-    similarity = dict()
-
-    switcher = {
-        'jaccard': jaccard,
-        'pearson': pearson,
-    }
-
-    for user in sim_users:
-
-        func = switcher.get(sim_method, lambda: "nothing")
-        s = func(users, user_id, user['userRated'])
-
-        if s > 0.2:
-            similarity[user['userRated']] = round(s, 2)
-    topn = sorted(similarity.items(), key=operator.itemgetter(1), reverse=True)[:10]
-
-    data = {
-        'user_id': user_id,
-        'num_places_rated': len(ratings),
-        'type': sim_method,
-        'topn': topn,
-        'similarity': topn,
-    }
-
-    return data
-
-
-
-def similar_user(user_id, sim_method = 'pearson'):
-    min = 1
-
-    ratings = Rating.objects.filter(userRated = user_id)
-    sim_users = Rating.objects.filter(contentName__in=ratings.values('contentName')) \
-        .values('userRated') \
-        .annotate(intersect=Count('userRated')).filter(intersect__gt=min)
-
-    dataset = Rating.objects.filter(userRated__in=sim_users.values('userRated'))
-
-    users = {u['userRated']: {} for u in sim_users}
-
-    for row in dataset:
-        if row.userRated in users.keys():
-            users[row.userRated][row.contentName] = row.grade
-
-    similarity = dict()
-
-    switcher = {
-        'jaccard': jaccard,
-        'pearson': pearson,
-    }
-
-    for user in sim_users:
-
-        func = switcher.get(sim_method, lambda: "nothing")
-        s = func(users, user_id, user['userRated'])
-
-        if s > 0.2:
-            similarity[user['userRated']] = round(s, 2)
-    topn = sorted(similarity.items(), key=operator.itemgetter(1), reverse=True)[:10]
-
-    data = {
-        'user_id': user_id,
-        'num_places_rated': len(ratings),
-        'type': sim_method,
-        'topn': topn,
-        'similarity': topn,
-    }
-
-    return data
-
-
-
 def connect_search(request):
     if request.method == 'POST':
         form = searchForm(request.POST)
@@ -183,16 +112,11 @@ def connect_search(request):
             meta = SearchMeta(key = request.POST['keyword'], user = request.user, date = datetime.datetime.today())
             meta.save()
 
-
-
-
             # 결과 처리
             k_result = searchByKeyword(meta.key, metaInfo)
             searchObj = SearchObj()
             searchObj.key = meta.key
             searchObj.content = k_result
-
-
 
             # 상세페이지 출력 위한 결과 처리
             details = []
